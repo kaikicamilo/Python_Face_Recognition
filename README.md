@@ -1,1 +1,1 @@
-# Simple_Face_Recognition
+Utiliza da webcam para reconhecer as faces no ambiente e montar os retângulos em volta das faces ao vivo. Além disso, retorna a faixa etária (Idoso, Adulto, Jovem Adulto, Jovem, Criança) e o gênero (Masc. e Fem.)
