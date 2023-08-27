@@ -1,0 +1,154 @@
+# Importando as bibliotecas necessárias
+import cv2
+import numpy as np
+import os
+import time
+
+# Carregando o modelo de detecção de faces
+faceProto = "opencv_face_detector.pbtxt"
+faceModel = "opencv_face_detector_uint8.pb"
+faceNet = cv2.dnn.readNet(faceModel, faceProto)
+
+# Carregando o modelo de detecção de gênero
+genderProto = "gender_deploy.prototxt"
+genderModel = "gender_net.caffemodel"
+genderNet = cv2.dnn.readNet(genderModel, genderProto)
+
+# Carregando o modelo de detecção de faixa etária
+ageProto = "age_deploy.prototxt"
+ageModel = "age_net.caffemodel"
+ageNet = cv2.dnn.readNet(ageModel, ageProto)
+
+# Definindo as classes de gênero
+genderList = ['Homem', 'Mulher']
+
+# Definindo as classes de faixa etária
+ageList = ['Infantil', 'Infantil', 'Jovem', 'Jovem Adulto', 'Adulto','Adulto', 'Adulto', 'Idoso']
+
+# Definindo a função para detectar faces
+def detectFace(net, frame, conf_threshold=0.7):
+    frameOpencvDnn = frame.copy()
+    frameHeight = frameOpencvDnn.shape[0]
+    frameWidth = frameOpencvDnn.shape[1]
+    
+    # Criando um blob a partir da imagem
+    blob = cv2.dnn.blobFromImage(frameOpencvDnn, 1.0, (300, 300), [104, 117, 123], True, False)
+    
+    # Passando o blob pela rede neural
+    net.setInput(blob)
+    detections = net.forward()
+    
+    # Criando uma lista de faces detectadas
+    faceBoxes = []
+    
+    # Iterando sobre as detecções
+    for i in range(detections.shape[2]):
+        # Extraindo a confiança (probabilidade) da detecção
+        confidence = detections[0, 0, i, 2]
+        
+        # Filtrando as detecções com confiança maior que a mínima
+        if confidence > conf_threshold:
+            # Extraindo as coordenadas da caixa delimitadora
+            x1 = int(detections[0, 0, i, 3] * frameWidth)
+            y1 = int(detections[0, 0, i, 4] * frameHeight)
+            x2 = int(detections[0, 0, i, 5] * frameWidth)
+            y2 = int(detections[0, 0, i, 6] * frameHeight)
+            
+            # Adicionando a caixa delimitadora à lista de faces detectadas
+            faceBoxes.append([x1, y1, x2, y2])
+            
+            # Desenhando a caixa delimitadora no frame
+            cv2.rectangle(frameOpencvDnn, (x1, y1), (x2, y2), (0, 255, 0), int(round(frameHeight/150)), 8)
+    
+    # Retornando o frame e a lista de faces detectadas
+    return frameOpencvDnn, faceBoxes
+
+# Definindo a função para detectar gênero
+def detectGender(net, frame, faceBoxes, conf_threshold=0.7):
+    genderLabels = []
+    for faceBox in faceBoxes:
+        face = frame[max(0, faceBox[1]):min(faceBox[3], frame.shape[0]-1), max(0, faceBox[0]):min(faceBox[2], frame.shape[1]-1)]
+
+        # Criando um blob a partir da imagem
+        blob = cv2.dnn.blobFromImage(face, 1.0, (227, 227), (78.4263377603, 87.7689143744, 114.895847746), swapRB=False)
+
+        # Passando o blob pela rede neural
+        net.setInput(blob)
+        genderPreds = net.forward()
+
+        # Obtendo o gênero predito
+        gender = genderList[genderPreds[0].argmax()]
+        genderLabels.append(gender)
+
+    return genderLabels
+
+# Definindo a função para detectar faixa etária
+def detectAge(net, frame, faceBoxes, conf_threshold=0.7):
+    ageLabels = []
+    for faceBox in faceBoxes:
+        face = frame[max(0, faceBox[1]):min(faceBox[3], frame.shape[0]-1), max(0, faceBox[0]):min(faceBox[2], frame.shape[1]-1)]
+
+        # Criando um blob a partir da imagem
+        blob = cv2.dnn.blobFromImage(face, 1.0, (227, 227), (78.4263377603, 87.7689143744, 114.895847746), swapRB=False)
+
+        # Passando o blob pela rede neural
+        net.setInput(blob)
+        agePreds = net.forward()
+
+        # Obtendo a faixa etária predita
+        age = ageList[agePreds[0].argmax()]
+        ageLabels.append(age)
+
+    return ageLabels
+
+# Definindo a função para desenhar as informações no frame
+def drawInfo(frame, faceBoxes, genderLabels, ageLabels):
+    for i, faceBox in enumerate(faceBoxes):
+        x, y, x1, y1 = faceBox
+
+        # Desenhando um retângulo em torno da face
+        cv2.rectangle(frame, (x, y), (x1, y1), (0, 255, 0), int(round(frame.shape[0]/150)), 8)
+
+        # Exibindo informações de gênero, faixa etária, emoção e óculos
+        label = f'{genderLabels[i]}, {ageLabels[i]}'
+        cv2.putText(frame, label, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv2.LINE_AA)
+
+# Definindo a função para capturar o vídeo da webcam
+def webcamCapture():
+    # Inicializando a webcam
+    webcam = cv2.VideoCapture(0)
+
+    while True:
+        # Capturando o frame da webcam
+        ret, frame = webcam.read()
+
+        if not ret:
+            break
+
+        # Detectando faces
+        frame, faceBoxes = detectFace(faceNet, frame)
+
+        # Detectando gênero
+        genderLabels = detectGender(genderNet, frame, faceBoxes)
+
+        # Detectando faixa etária
+        ageLabels = detectAge(ageNet, frame, faceBoxes)
+
+        # Desenhando informações no frame
+        drawInfo(frame, faceBoxes, genderLabels, ageLabels)
+
+        # Exibindo o frame com as informações
+        cv2.imshow("Webcam - Pressione 'q' para sair", frame)
+
+        # Verificando se a tecla 'q' foi pressionada para sair do loop
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    # Fechando a janela
+    cv2.destroyAllWindows()
+
+    # Fechando a conexão com a webcam
+    webcam.release()
+
+# Capturando o vídeo da webcam
+webcamCapture()
